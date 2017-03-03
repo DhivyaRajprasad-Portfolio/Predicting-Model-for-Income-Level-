@@ -1,0 +1,349 @@
+---
+title: "Predicting the Income Level based on Various Factors"
+subtitle: <center>Data Management - Final Project
+date: "`r Sys.Date()`"
+output:
+  rmdformats::readthedown:
+    highlight: kate
+---
+#Description of the Dataset
+The dataset used is US Census data which is an extraction of the 1994 census data which was donated to the UC Irvine’s Machine Learning Repository.                             
+The data contains approximately 32,000 observations with over 15 variables.              
+The dataset was downloaded from:                
+http://archive.ics.uci.edu/ml/datasets/Adult.            
+The dependent variable in our analysis will be income level and who earns above $50,000 a year using SQL queries, Proportion Analysis using bar charts and Simple Decision Tree to understand the important variables and their influence on prediction.    
+
+#R Packages Used
+```{r, message=FALSE, comment=FALSE, warning=FALSE}
+options(gsubfn.engine = "R")
+library(sqldf) #For SQL Functions
+library(reshape2) #For plots
+library(knitr) # For tables
+library(Hmisc)# Description of the data
+library(rpart)
+library(caret)
+library(rpart.plot)
+```
+
+#Importing the dataset
+```{r}
+data <- read.csv("adult.csv", header=FALSE, sep= ",", strip.white=TRUE,col.names= c("age", "workclass", "fnlwgt", "education", "educationnum", "maritalstatus", "occupation","relationship", "race", "sex", "capitalgain",
+ "capitalloss", "hoursperweek", "nativecountry",
+"incomelevel"), na.strings= "?", stringsAsFactors = TRUE)
+kable(head(data))
+```
+
+#Description of the variables in the dataset            
+The variables and their classifications are as given below:      
+```{r, results= 'asis'}
+variabletable<- read.csv("Workbook1.csv")
+kable(variabletable)
+```
+
+#Basic commands to know about the Data     
+
+##Summary of the data
+```{r, comment=NA, message=NA}
+kable(summary(data))
+```
+
+##Description of the dataset
+```{r, comment=NA, message=NA}
+describe(data)
+```
+
+#Normalization of the data
+The dataset is already normalized as there are no repetitive data which can be used to split into multiple tables and there isn’t data redundancy or data integrity improvements available for this particular dataset. 
+
+
+#Problems in the Data
+
+##Recoded Missing Values
+We recoded the data with NA for the string "?" (Which denotes misisng value in the dataset) when we imported the file to make the treatment of missing values easier.
+
+##Missing Data
+2399 datapoints are found to be missing which is 7.3% of the dataset.
+```{r, comment=NA, message=NA}
+table(complete.cases(data)) 
+```
+
+We find that about 2066 of the missing observations centres around <=50 k category and since most of the data has <=50 k category as the income level, removing these missing variables will not affect the data integrity.
+```{r,comment=NA, message=NA}
+summary(data[!complete.cases(data),])
+```
+
+Removing the missing data
+```{r, comment=NA, message=NA}
+data <- na.omit(data)
+```
+
+##Unncessary Variables
+The fnlwgt which is the final weight determined by the Census Organization is of no use in any of the analysis that we are doing henceforth and is removed. The educationnum if a repetitive variable which recodes the categorical variable education as a numeric variable but will be used in the analysis for decision trees, hence is not being removed.
+
+```{r, comment=NA, message=NA}
+Finaldata <- sqldf("SELECT age
+                           ,workclass
+                    ,education
+                    ,educationnum
+                    ,maritalstatus
+                    ,occupation
+                    ,relationship
+                    ,race
+                    ,sex
+                    ,capitalgain
+                    ,capitalloss
+                    ,hoursperweek
+                    ,nativecountry
+                    ,incomelevel
+                    FROM data
+                    ")
+kable(head(Finaldata))
+```
+
+##Recoding Income Levels
+The values for the income levels are recoded with 1 and 0 with >50 k being coded as 1. The sum of the values in this column will hence give the number of people with income >50 k and thus can be an effective prediction tool.
+```{r, comment=NA, message=NA}
+Finaldata$income<-ifelse(Finaldata$income=='>50K',1,0)
+kable(head(Finaldata))
+```
+
+#SQL Queries and Exploratory Analysis using R
+
+##Statistics of other variables based on workclass and SQL Queries    
+Sample statistics are generated classifying the data by Work Class and calculating the numerical values categorized by the Work Class using GROUPBY, SUM and AVERAGE functions in SQLDF package in R.
+
+```{r, comment=NA, message=NA}
+WorkclassClassification <- sqldf("SELECT 
+                          workclass,
+                          count(*) as Numberofrecords,
+                         Avg(age) as averageage,
+                         Sum(capitalgain) as capitalgain,
+                        Sum(capitalloss) as capitalloss,
+                        Avg(hoursperweek),
+                        sum(income) as above50k
+                         FROM Finaldata
+                         GROUP by workclass")
+kable(WorkclassClassification)
+```
+
+##Statistics based on race
+
+Sample statistics are also generated by classifying the data by Race and calculating the numerical values categorized by the Work Class using GROUPBY, SUM and AVERAGE functions in SQLDF package in R.
+
+```{r, comment=NA, message=NA}
+RacesClassification <- sqldf("SELECT 
+                                 race,
+                                 count(*) as Numberofrecords,
+                                 Avg(age) as averageage,
+                                 Sum(capitalgain) as capitalgain,
+                                 Sum(capitalloss) as capitalloss,
+                                 Avg(hoursperweek),
+                                 sum(income) as above50k
+                                 FROM Finaldata
+                                 GROUP by race")
+kable(RacesClassification)
+```
+
+SQL Queries can also be used to find some basic prediction about the income level and the various categorical variables which contribute towards it.
+
+##Marital Status and implication on the income levels   
+
+We find that Married with Civilian Spouse to have higher amount of people with above 50k income.
+We then find the proportions of the people with above 50 k income with respect to the total number of people in each category and find that Married with Armed Forces have a better proportion of people with income above 50k.
+
+```{r, comment=NA, message=NA}
+MaritalLevel<- sqldf("SELECT 
+                    maritalstatus as status
+                    , Count (*) as Count
+                    , sum(income) as Above50k
+                    FROM 
+                    Finaldata
+                    GROUP BY 
+                    status
+                    ORDER BY status") 
+kable(MaritalLevel)
+Maritalclass<-melt(MaritalLevel,id.vars = 'status')
+ggplot(Maritalclass,aes(x=status,y=value,fill=variable))+
+  geom_bar(stat = 'identity')+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  ggtitle('Proportion of People with income above 50k')+
+  xlab("Gender Class")+
+  ylab("Number of People")
+table<-data.frame(Class=MaritalLevel$status, 
+                   Proportion=
+                     MaritalLevel$Above50k/MaritalLevel$Count)
+kable(table)
+```
+
+##Gender and implication on the income levels
+
+We use a similar analysis as above across the Gender Variable and find that Males have a better proportion of people with salaries above 50k and more number of people who have salaries greater than 50k thus raising the spark for gender inequality.
+
+```{r, comment=NA, message=NA}
+GenderLevel<- sqldf("SELECT 
+                    sex as gender
+                       , Count (*) as Count
+                       , sum(income) as Above50k
+                       FROM 
+                       Finaldata
+                       GROUP BY 
+                       gender
+                       ORDER BY gender") 
+Genderclass<-melt(GenderLevel,id.vars = 'gender')
+ggplot(Genderclass,aes(x=gender,y=value,fill=variable))+
+  geom_bar(stat = 'identity')+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  ggtitle('Proportion of People with income above 50k')+
+  xlab("Gender Class")+
+  ylab("Number of People")
+table<-data.frame(Class=GenderLevel$gender, 
+                   Proportion=
+                    GenderLevel$Above50k/GenderLevel$Count)
+kable(table)
+```
+
+
+##Work Class and implication on the income levels
+
+We find that the people employed in private companies have more people with income above 50k and Self Employed people having a higher proportion of peoplw with income greater than 50k.
+
+```{r, comment=NA, message=NA}
+WorkclassLevel<- sqldf("SELECT 
+                    workclass as workclass
+                    , Count (*) as Count
+                    , sum(income) as Above50k
+                    FROM 
+                    Finaldata
+                    GROUP BY 
+                    workclass
+                    ORDER BY workclass") 
+Workclass<-melt(WorkclassLevel,id.vars = 'workclass')
+ggplot(Workclass,aes(x=workclass,y=value,fill=variable))+
+  geom_bar(stat = 'identity')+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  ggtitle('Proportion of People with income above 50k')+
+  xlab("Work Class")+
+  ylab("Number of People")
+table<-data.frame(Class=WorkclassLevel$workclass, 
+                  Proportion=
+                    WorkclassLevel$Above50k/WorkclassLevel$Count)
+kable(table)
+```
+
+##Education Level and implication on the income levels
+
+We find that the Bachelors’ Degree has higher number of people with income above 50 k and Prof School Graduates and Doctorates have higher proportion of people with income about 50k.
+
+```{r, comment=NA, message=NA}
+Education_Level<- sqldf("SELECT 
+                       education as 'Education'
+                       , Count (*) as 'Count'
+                       , sum(income) as 'Above50k'
+                       FROM 
+                       Finaldata
+                       GROUP BY 
+                       Education
+                       ORDER BY Education") 
+EducationLevel<-melt(Education_Level,id.vars = 'Education')
+ggplot(EducationLevel,aes(x=Education,y=value,fill=variable))+
+  geom_bar(stat = 'identity')+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  ggtitle('Proportion of People with income above 50k')+
+  xlab("Education Class")+
+  ylab("Number of People")
+table<-data.frame(Class=Education_Level$Education, 
+                   Proportion=
+                     Education_Level$Above50k/Education_Level$Count)
+kable(table)
+```
+
+#Using R for Statistical Analysis
+We use R to create Decision Trees to predict the income levels using all the variables in the dataset.             
+
+##Methodology Used          
+Classification methodology was used for this particular data as the response variable income was a binary variable.            
+
+##Advantages of using Decision Trees for this Analysis      
+**Simplicity of Interpretation**: The entire data is represented in a visual format which enables us to understand the data quickly and make a prediction.                       
+**Ability to use both numeric and categorical variables as predictors**: Our data is a mix of categorical and numeric variables and other commonly used methods such as linear or logistic regressions can use either of these categories but not both in a single algorithm.            
+
+##Algorithm behind             
+The package used to construct the tree here is Rpart which uses recursive partitioning of the data with the default criterion being used for each split being Gini Coefficient.  
+
+##Variables used                
+We create the tree using all the variables and rank the variables in terms of importance to figure out the variables used by the decision tree algorithm to predict the income.          
+```{r,comment=NA, message=NA}
+tree <- rpart(incomelevel ~ .,
+              data = data,
+              method = "class")
+imp <- varImp(tree)
+rownames(imp)[order(imp$Overall, decreasing=TRUE)]
+```
+We find that Capital Gain is one of the key predictors followed by education for the income levels.                 
+The tree logic is as below where only “capital gain, education and relationship” are used as variables by the tree as Education num and education both have the same data.               
+```{r, comment=NA, message=NA}
+printcp(tree)
+plotcp(tree)
+rpart.plot(tree, main = "Basic Classification Tree for Census Data")
+```
+
+#Inferences
+
+About 46% of the people are in a relationship called “Husband” or “Wife” which is then further classified based on Education Level where nearly 14% who earn above $50 K have the education of Bachelors, Prof-school, Masters and Doctorate.
+
+The other education levels have income predominantly below $50 k with just 2% having salaries above $50k who also have capital gains greater than $5096
+
+With respect to other relationships, only 1% have income above $50 k and with capital gains greater than $7074.
+
+# Tableau for Visualization
+
+We use 4 sheets to visualize different relationships and use Work Class as the common parameter which will filter the entire dashboard.                  
+
+The first sheet shows the relationship of Education and Number of People Earning > 50 k and separated by Work Class. We find that Bachelors graduates working in Private companies have a higher number of people earning above 50 k.                  
+
+![Impact of Education on Income Levels](Image1.png)
+
+The second sheet shows the relationship of Average hours per week with respect to gender and separated by Work Class and we find that Males typically work more hours per week on Average across all work classes.
+
+![Impact of Gender on Income Levels](Image2.png)
+
+The third sheet shows that the relationship of marital status and income levels separated by Work Class. Majority of the people in Married with Civilian spouse have an income greater than 50 k and majorly in the private sector.
+
+![Impact of Marital Status on Income Levels](Image3.png)
+
+
+The fourth work sheet shows the impact of occupation, capital gain and capital loss on the income levels which has details of work class too. This is a comprehensive visualization across 4 different parameters. We find that Executives at Managerial Level have more people with income greater than 50 k and Professional Speciality has more capital gains.
+
+![Impact of Occupation on Income Levels and Capital Gains/Loss](Image4.png)
+
+Final Dashboard:
+
+![Final Dashboard](UnfilteredDashboard.png)
+
+Filtered Dashboard for Private Sector:
+
+![Filtered Dashboard](FilteredDashboard.png)
+
+#Challenges Faced
+
+1.	The datafile was initially scraped from a web repository called UCI Machine Learning- part of UC Irvine, which crashed in the last two days left for submission and hence R was unable to establish a connection to the data. So, I figured out the FTP page of the website and downloaded the data and uploaded from the hard disk directly for the project. This is not the ideal way but R markdown supports this by establishing a static html page which will provide all the outputs from the commands at the time of publishing the report.                           
+2.	Problems with decision trees and R packages- The packages used for prettier decision tree modeling was not working in the R studio and has to be fixed with multiple supporting libraries before proceeding.                                     
+3.	Learning SQL DF- R and SQL both are relatively new for me and it took me a while to understand the workings of SQL DF commands.
+
+
+```{r knitr_init, echo=FALSE, cache=FALSE}
+library(knitr)
+library(rmdformats)
+
+## Global options
+options(max.print="75")
+opts_chunk$set(echo=FALSE,
+	             cache=TRUE,
+               prompt=FALSE,
+               tidy=TRUE,
+               comment=NA,
+               message=FALSE,
+               warning=FALSE)
+opts_knit$set(width=75)
+```
+
